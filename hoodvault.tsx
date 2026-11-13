@@ -226,12 +226,59 @@ function loadSavedState(key, fallback) {
   }
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+function isValidEmail(email) {
+  return EMAIL_RE.test(email);
+}
+
+function randomSalt() {
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashPassword(password, salt) {
+  const data = new TextEncoder().encode(salt + ":" + password);
+  const digest = await window.crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function formatOrderDate(d = new Date()) {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatBirthday(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return value;
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
 function saveState(key, value) {
   try {
     window.localStorage.setItem("hoodvault_v2_" + key, JSON.stringify(value));
   } catch (e) {
     // Ignore storage quota errors inside sandboxed iframes
   }
+}
+
+function EyeIcon({ open }) {
+  return open ? (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.6 5.1A10.4 10.4 0 0112 5c6.4 0 10 7 10 7a17.6 17.6 0 01-3.2 4.2M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a9.8 9.8 0 005.4-1.6" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.9 9.9a3 3 0 004.2 4.2" />
+    </svg>
+  ) : (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+      <circle cx="12" cy="12" r="2.8" />
+    </svg>
+  );
 }
 
 export default function App() {
@@ -257,19 +304,37 @@ export default function App() {
   );
 
   // User Profile & Auth State
-  const [isLoggedIn, setIsLoggedIn] = useState(() =>
-    loadSavedState("isLoggedIn", true)
+  // Accounts live in this browser only (no backend). Passwords are salted + SHA-256 hashed.
+  const [accounts, setAccounts] = useState(() => loadSavedState("accounts", []));
+  const [currentUserEmail, setCurrentUserEmail] = useState(() =>
+    loadSavedState("currentUser", null)
   );
-  const [profile, setProfile] = useState(() =>
-    loadSavedState("profile", {
-      name: "John Paul",
-      bio: "Set Now",
-      gender: "Male",
-      birthday: "Set Now",
-      phone: "*********37",
-      email: "p******n@gmail.com"
-    })
-  );
+  const [authRedirect, setAuthRedirect] = useState(null);
+  const currentAccount = accounts.find(a => a.email === currentUserEmail) || null;
+  const isLoggedIn = !!currentAccount;
+  const profile = currentAccount
+    ? {
+        name: currentAccount.name,
+        email: currentAccount.email,
+        bio: currentAccount.bio || "Set Now",
+        gender: currentAccount.gender || "Set Now",
+        birthday: currentAccount.birthday || "Set Now",
+        phone: currentAccount.phone || "Set Now"
+      }
+    : {
+        name: "Guest",
+        email: "",
+        bio: "Set Now",
+        gender: "Set Now",
+        birthday: "Set Now",
+        phone: "Set Now"
+      };
+
+  function updateCurrentAccount(fields) {
+    setAccounts(prev =>
+      prev.map(a => (a.email === currentUserEmail ? { ...a, ...fields } : a))
+    );
+  }
 
   // Auth Forms State
   const [loginEmail, setLoginEmail] = useState("");
@@ -308,7 +373,7 @@ export default function App() {
         paymentMethod: "GCash",
         status: "Paid",
         deliveryStep: 1,
-        amountPaid: 8333,
+        amountPaid: 8377,
         shippingFee: 0,
         items: DEFAULT_CART,
         shipping: {
@@ -327,6 +392,8 @@ export default function App() {
   const [selectedSize, setSelectedSize] = useState("L");
   const [editingProfileField, setEditingProfileField] = useState(null);
   const [editFieldValue, setEditFieldValue] = useState("");
+  const [editFieldError, setEditFieldError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
   const [ordersModalOpen, setOrdersModalOpen] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [forgotPwModalOpen, setForgotPwModalOpen] = useState(false);
@@ -353,12 +420,12 @@ export default function App() {
   }, [collectedIds]);
 
   useEffect(() => {
-    saveState("isLoggedIn", isLoggedIn);
-  }, [isLoggedIn]);
+    saveState("accounts", accounts);
+  }, [accounts]);
 
   useEffect(() => {
-    saveState("profile", profile);
-  }, [profile]);
+    saveState("currentUser", currentUserEmail);
+  }, [currentUserEmail]);
 
   useEffect(() => {
     saveState("shipping", shipping);
@@ -382,6 +449,15 @@ export default function App() {
   }
 
   function navigateTo(view, opts = {}) {
+    // Profile needs an account; send guests to log in and come back afterwards.
+    if (view === "profile" && !isLoggedIn) {
+      setAuthRedirect("profile");
+      setLoginError("");
+      pushToast("Please log in to view your profile");
+      view = "login";
+    } else if ((view === "login" || view === "signup") && isLoggedIn) {
+      view = "profile";
+    }
     if (opts.catalogCategory) {
       setCatalogCategory(opts.catalogCategory);
     }
@@ -409,15 +485,13 @@ export default function App() {
   function toggleWishlist(productId, e) {
     if (e) e.stopPropagation();
     const prod = getProductById(productId);
-    setWishlistIds(prev => {
-      if (prev.includes(productId)) {
-        pushToast(`Removed ${prod.name} from Wishlist`);
-        return prev.filter(id => id !== productId);
-      } else {
-        pushToast(`Saved ${prod.name} to Wishlist`);
-        return [...prev, productId];
-      }
-    });
+    if (wishlistIds.includes(productId)) {
+      setWishlistIds(prev => prev.filter(id => id !== productId));
+      pushToast(`Removed ${prod.name} from Wishlist`);
+    } else {
+      setWishlistIds(prev => (prev.includes(productId) ? prev : [...prev, productId]));
+      pushToast(`Saved ${prod.name} to Wishlist`);
+    }
   }
 
   function handleClearOrRestoreWishlist() {
@@ -484,17 +558,7 @@ export default function App() {
     pushToast(`Removed ${prod.name} from Cart`);
   }
 
-  // Exact Figma Subtotal/Total logic + live dynamic calculation when modified
   const cartSubtotal = useMemo(() => {
-    const isExactDefault =
-      cart.length === 4 &&
-      cart.every(item => item.qty === 1) &&
-      ["zip-up", "oversize", "hv-oversize", "graphic"].every(id =>
-        cart.some(c => c.id === id)
-      );
-    if (isExactDefault) {
-      return 8333;
-    }
     return cart.reduce((sum, item) => {
       const prod = getProductById(item.id);
       return sum + prod.price * item.qty;
@@ -574,25 +638,27 @@ export default function App() {
   function finalizeOrder(methodUsed, statusLabel) {
     setIsProcessingPayment(true);
     setTimeout(() => {
-      const nextNum =
-        orders.length === 1 && orders[0].orderNumber === "#HV-10248" && cartSubtotal === 8333
-          ? "#HV-10248"
-          : `#HV-${10248 + orders.length}`;
+      const highest = orders.reduce((max, o) => {
+        const n = parseInt(String(o.orderNumber).replace(/\D/g, ""), 10);
+        return Number.isFinite(n) ? Math.max(max, n) : max;
+      }, 10247);
+      const nextNum = `#HV-${highest + 1}`;
 
       const newOrder = {
         orderNumber: nextNum,
-        date: "Nov 13, 2026",
-        itemCount: cartItemCount || 4,
+        date: formatOrderDate(),
+        itemCount: cartItemCount,
         paymentMethod: methodUsed,
         status: statusLabel,
         deliveryStep: 1,
-        amountPaid: cartSubtotal || 8333,
+        amountPaid: cartSubtotal,
         shippingFee: 0,
         items: [...cart],
         shipping: { ...shipping }
       };
 
-      setOrders(prev => [newOrder, ...prev.filter(o => o.orderNumber !== nextNum)]);
+      setOrders(prev => [newOrder, ...prev]);
+      setCart([]);
 
       // Unlock collected hoodies in user's Vault Collection
       const newlyOrderedIds = cart.map(c => c.id);
@@ -608,94 +674,159 @@ export default function App() {
     }, 550);
   }
 
-  // Real Auth Submit Handlers
-  function handleLoginSubmit(e) {
+  // Auth handlers (accounts are stored in this browser only)
+  function finishAuth(email) {
+    setCurrentUserEmail(email);
+    const target = authRedirect || "home";
+    setAuthRedirect(null);
+    // Set the view directly: navigateTo would still see the pre-login state here.
+    setCurrentView(target);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleLoginSubmit(e) {
     e.preventDefault();
+    if (authBusy) return;
     setLoginError("");
-    const email = loginEmail.trim();
+    const email = loginEmail.trim().toLowerCase();
     const pw = loginPassword;
-    if (!email || !email.includes("@")) {
+    if (!isValidEmail(email)) {
       setLoginError("Please enter a valid email address.");
       return;
     }
-    if (!pw || pw.length < 4) {
-      setLoginError("Please enter your password (at least 4 characters).");
+    if (!pw) {
+      setLoginError("Please enter your password.");
       return;
     }
-    const derivedName = email.split("@")[0].replace(/[._-]/g, " ");
-    const formattedName = derivedName
-      .split(" ")
-      .filter(Boolean)
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(" ");
-
-    setProfile(prev => ({
-      ...prev,
-      name: formattedName || prev.name,
-      email
-    }));
-    setIsLoggedIn(true);
-    setLoginPassword("");
-    pushToast(`Welcome back, ${formattedName || profile.name}!`);
-    navigateTo("home");
+    const account = accounts.find(a => a.email === email);
+    if (!account) {
+      setLoginError("No account found with that email. Sign up to create one.");
+      return;
+    }
+    setAuthBusy(true);
+    try {
+      const hash = await hashPassword(pw, account.salt);
+      if (hash !== account.passwordHash) {
+        setLoginError("Incorrect password. Please try again.");
+        return;
+      }
+      setLoginPassword("");
+      setShowLoginPw(false);
+      pushToast(`Welcome back, ${account.name.split(" ")[0]}!`);
+      finishAuth(email);
+    } catch (err) {
+      setLoginError("Something went wrong while logging in. Please try again.");
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
-  function handleSignupSubmit(e) {
+  async function handleSignupSubmit(e) {
     e.preventDefault();
+    if (authBusy) return;
     setSignupError("");
-    const name = signupName.trim();
-    const email = signupEmail.trim();
+    const name = signupName.trim().replace(/\s+/g, " ");
+    const email = signupEmail.trim().toLowerCase();
     const pw = signupPassword;
     const confirm = signupConfirmPw;
 
-    if (!name) {
+    if (name.length < 2) {
       setSignupError("Please enter your full name.");
       return;
     }
-    if (!email || !email.includes("@")) {
+    if (!isValidEmail(email)) {
       setSignupError("Please enter a valid email address.");
       return;
     }
-    if (pw.length < 6) {
-      setSignupError("Password must be at least 6 characters.");
+    if (accounts.some(a => a.email === email)) {
+      setSignupError("An account with this email already exists. Log in instead.");
       return;
     }
-    if (confirm && pw !== confirm) {
+    if (pw.length < 8) {
+      setSignupError("Password must be at least 8 characters.");
+      return;
+    }
+    if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw)) {
+      setSignupError("Password must include at least one letter and one number.");
+      return;
+    }
+    if (!confirm) {
+      setSignupError("Please confirm your password.");
+      return;
+    }
+    if (pw !== confirm) {
       setSignupError("Passwords do not match.");
       return;
     }
 
-    setProfile(prev => ({
-      ...prev,
-      name,
-      email
-    }));
-    setIsLoggedIn(true);
-    setSignupPassword("");
-    setSignupConfirmPw("");
-    pushToast(`Account created! Welcome to HoodVault, ${name}.`);
-    navigateTo("home");
+    setAuthBusy(true);
+    try {
+      const salt = randomSalt();
+      const passwordHash = await hashPassword(pw, salt);
+      setAccounts(prev => [
+        ...prev,
+        { name, email, salt, passwordHash, createdAt: new Date().toISOString() }
+      ]);
+      setSignupName("");
+      setSignupEmail("");
+      setSignupPassword("");
+      setSignupConfirmPw("");
+      setShowSignupPw(false);
+      pushToast(`Account created! Welcome to HoodVault, ${name.split(" ")[0]}.`);
+      finishAuth(email);
+    } catch (err) {
+      setSignupError("Something went wrong while creating your account. Please try again.");
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
   function handleSocialLogin(provider) {
-    setIsLoggedIn(true);
-    pushToast(`Signed in with ${provider}`);
-    navigateTo("home");
+    pushToast(`${provider} sign-in isn't available yet. Please use your email instead.`);
+  }
+
+  function handleLogout() {
+    setCurrentUserEmail(null);
+    setAuthRedirect(null);
+    setCurrentView("home");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    pushToast("You've been logged out");
   }
 
   function openProfileEditor(fieldKey, label, currentVal) {
     setEditingProfileField({ key: fieldKey, label });
+    setEditFieldError("");
     setEditFieldValue(currentVal === "Set Now" ? "" : currentVal);
   }
 
   function saveProfileEdit(e) {
     e.preventDefault();
     if (!editingProfileField) return;
+    const key = editingProfileField.key;
     const val = editFieldValue.trim();
-    setProfile(prev => ({
-      ...prev,
-      [editingProfileField.key]: val || "Set Now"
-    }));
+
+    if (key === "name" && val.length < 2) {
+      setEditFieldError("Name can't be empty.");
+      return;
+    }
+    if (key === "email") {
+      const email = val.toLowerCase();
+      if (!isValidEmail(email)) {
+        setEditFieldError("Please enter a valid email address.");
+        return;
+      }
+      if (email !== currentUserEmail && accounts.some(a => a.email === email)) {
+        setEditFieldError("Another account already uses this email.");
+        return;
+      }
+      updateCurrentAccount({ email });
+      setCurrentUserEmail(email);
+    } else if (key === "phone" && val && !/^[+\d][\d\s-]{6,}$/.test(val)) {
+      setEditFieldError("Please enter a valid phone number.");
+      return;
+    } else {
+      updateCurrentAccount({ [key]: key === "name" ? val.replace(/\s+/g, " ") : val });
+    }
     setEditingProfileField(null);
     pushToast(`${editingProfileField.label} updated`);
   }
@@ -904,15 +1035,20 @@ export default function App() {
 
                 <button
                   type="button"
-                  onClick={() => navigateTo("login")}
-                  className="flex items-center gap-2 text-[13.5px] text-[#111111] hover:text-[#0B465F] transition-colors"
-                  title="Account Login / Sign Up"
+                  onClick={() => navigateTo(isLoggedIn ? "profile" : "login")}
+                  className={`flex items-center gap-2 text-[13.5px] hover:text-[#0B465F] transition-colors ${
+                    currentView === "profile" ? "text-[#0B465F] font-medium" : "text-[#111111]"
+                  }`}
+                  title={isLoggedIn ? "Your profile" : "Log in / Sign up"}
+                  aria-label={isLoggedIn ? `Account: ${profile.name}` : "Account: log in or sign up"}
                 >
                   <svg className="w-[20px] h-[20px]" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
                     <circle cx="12" cy="8" r="4" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 20c1.6-3.6 4.3-5.5 7.5-5.5s5.9 1.9 7.5 5.5" />
                   </svg>
-                  <span className="hidden sm:inline">Account</span>
+                  <span className="hidden sm:inline max-w-[110px] truncate">
+                    {isLoggedIn ? profile.name.split(" ")[0] : "Log in"}
+                  </span>
                 </button>
               </div>
             )}
@@ -1962,10 +2098,12 @@ export default function App() {
                   </svg>
                 </div>
                 <h2 className="text-[25px] font-semibold text-[#111111] mt-4">
-                  Payment successful
+                  {latestOrder.paymentMethod === "GCash" ? "Payment successful" : "Order placed"}
                 </h2>
                 <p className="text-[14px] text-[#666666] mt-1">
-                  Your order is confirmed.
+                  {latestOrder.paymentMethod === "GCash"
+                    ? "Your order is confirmed."
+                    : "Your order is confirmed. Please prepare the exact amount on delivery."}
                 </p>
               </div>
 
@@ -1982,7 +2120,7 @@ export default function App() {
 
                   <div className="flex items-center justify-between text-[13.5px] mt-5">
                     <span className="text-[#111111]">
-                      {latestOrder.itemCount} items · {latestOrder.paymentMethod}
+                      {latestOrder.itemCount} {latestOrder.itemCount === 1 ? "item" : "items"} · {latestOrder.paymentMethod}
                     </span>
                     <span className="font-medium text-[#0B465F]">
                       {latestOrder.status}
@@ -1991,7 +2129,7 @@ export default function App() {
 
                   <div className="flex items-baseline justify-between mt-3.5">
                     <span className="text-[13.5px] text-[#111111]">
-                      Amount paid
+                      {latestOrder.paymentMethod === "GCash" ? "Amount paid" : "Amount due on delivery"}
                     </span>
                     <span className="text-[24px] font-semibold text-[#111111]">
                       {formatPeso(latestOrder.amountPaid)}
@@ -2095,7 +2233,7 @@ export default function App() {
                   <h2 className="text-[19px] font-medium text-[#111111] mt-4">
                     {profile.name}
                   </h2>
-                  <p className="text-[12px] text-[#777777] mt-1">
+                  <p className="text-[12px] text-[#777777] mt-1 break-all">
                     {profile.email}
                   </p>
 
@@ -2133,11 +2271,7 @@ export default function App() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        setIsLoggedIn(false);
-                        navigateTo("login");
-                        pushToast("Signed out");
-                      }}
+                      onClick={handleLogout}
                       className="text-[#0B465F] font-medium hover:underline"
                     >
                       Log out
@@ -2156,7 +2290,7 @@ export default function App() {
                       { key: "name", label: "Name", value: profile.name },
                       { key: "bio", label: "Bio", value: profile.bio },
                       { key: "gender", label: "Gender", value: profile.gender },
-                      { key: "birthday", label: "Birthday", value: profile.birthday },
+                      { key: "birthday", label: "Birthday", value: formatBirthday(profile.birthday) },
                       { key: "phone", label: "Phone", value: profile.phone },
                       { key: "email", label: "Email", value: profile.email }
                     ].map((row, index, arr) => {
@@ -2167,7 +2301,7 @@ export default function App() {
                           key={row.key}
                           type="button"
                           onClick={() =>
-                            openProfileEditor(row.key, row.label, row.value)
+                            openProfileEditor(row.key, row.label, profile[row.key])
                           }
                           className={`w-full flex items-center justify-between py-5 ${
                             isLast ? "" : "border-b border-[#E0E0E0]"
@@ -2176,9 +2310,9 @@ export default function App() {
                           <span className="text-[13.5px] text-[#111111]">
                             {row.label}
                           </span>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 min-w-0 pl-4">
                             <span
-                              className={`text-[13.5px] ${
+                              className={`text-[13.5px] truncate ${
                                 isMuted ? "text-[#7A7A7A]" : "text-[#222222]"
                               }`}
                             >
@@ -2226,9 +2360,9 @@ export default function App() {
                   </div>
                 )}
 
-                <form onSubmit={handleLoginSubmit} className="flex flex-col gap-4">
+                <form onSubmit={handleLoginSubmit} noValidate className="flex flex-col gap-4">
                   <div>
-                    <label className="block text-[12px] font-medium text-[#222222] mb-1.5">
+                    <label htmlFor="login-email" className="block text-[12px] font-medium text-[#222222] mb-1.5">
                       Email Address
                     </label>
                     <div className="relative">
@@ -2243,9 +2377,16 @@ export default function App() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3 7l9 6 9-6" />
                       </svg>
                       <input
+                        id="login-email"
+                        name="email"
                         type="email"
+                        autoComplete="email"
+                        inputMode="email"
                         value={loginEmail}
-                        onChange={e => setLoginEmail(e.target.value)}
+                        onChange={e => {
+                          setLoginEmail(e.target.value);
+                          if (loginError) setLoginError("");
+                        }}
                         placeholder="Enter your email"
                         className="w-full h-[42px] pl-10 pr-4 bg-[#F7F7F7] focus:bg-white border border-[#D8D8D8] focus:border-[#0B465F] rounded-[8px] text-[13px] text-[#111111] placeholder-[#8E8E8E] focus:outline-none transition-colors"
                       />
@@ -2254,7 +2395,7 @@ export default function App() {
 
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-[12px] font-medium text-[#222222]">
+                      <label htmlFor="login-password" className="block text-[12px] font-medium text-[#222222]">
                         Password
                       </label>
                       <button
@@ -2280,31 +2421,36 @@ export default function App() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 018 0v4" />
                       </svg>
                       <input
+                        id="login-password"
+                        name="password"
                         type={showLoginPw ? "text" : "password"}
+                        autoComplete="current-password"
                         value={loginPassword}
-                        onChange={e => setLoginPassword(e.target.value)}
+                        onChange={e => {
+                          setLoginPassword(e.target.value);
+                          if (loginError) setLoginError("");
+                        }}
                         placeholder="Enter your password"
                         className="w-full h-[42px] pl-10 pr-10 bg-[#F7F7F7] focus:bg-white border border-[#D8D8D8] focus:border-[#0B465F] rounded-[8px] text-[13px] text-[#111111] placeholder-[#8E8E8E] focus:outline-none transition-colors"
                       />
                       <button
                         type="button"
                         onClick={() => setShowLoginPw(!showLoginPw)}
-                        aria-label="Toggle password visibility"
+                        aria-label={showLoginPw ? "Hide password" : "Show password"}
+                        aria-pressed={showLoginPw}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-[#555555] hover:text-[#111111] p-1"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
-                          <circle cx="12" cy="12" r="2.8" />
-                        </svg>
+                        <EyeIcon open={showLoginPw} />
                       </button>
                     </div>
                   </div>
 
                   <button
                     type="submit"
-                    className="w-full h-[44px] mt-2 rounded-[8px] bg-[#0B465F] hover:bg-[#083548] text-white text-[13.5px] font-medium transition-colors shadow-sm"
+                    disabled={authBusy}
+                    className="w-full h-[44px] mt-2 rounded-[8px] bg-[#0B465F] hover:bg-[#083548] disabled:opacity-60 text-white text-[13.5px] font-medium transition-colors shadow-sm"
                   >
-                    Log In
+                    {authBusy ? "Logging in..." : "Log In"}
                   </button>
                 </form>
 
@@ -2379,9 +2525,9 @@ export default function App() {
                   </div>
                 )}
 
-                <form onSubmit={handleSignupSubmit} className="flex flex-col gap-4">
+                <form onSubmit={handleSignupSubmit} noValidate className="flex flex-col gap-4">
                   <div>
-                    <label className="block text-[12px] font-medium text-[#222222] mb-1.5">
+                    <label htmlFor="signup-name" className="block text-[12px] font-medium text-[#222222] mb-1.5">
                       Full Name
                     </label>
                     <div className="relative">
@@ -2396,9 +2542,15 @@ export default function App() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 20c1.6-3.6 4.3-5.5 7.5-5.5s5.9 1.9 7.5 5.5" />
                       </svg>
                       <input
+                        id="signup-name"
+                        name="name"
                         type="text"
+                        autoComplete="name"
                         value={signupName}
-                        onChange={e => setSignupName(e.target.value)}
+                        onChange={e => {
+                          setSignupName(e.target.value);
+                          if (signupError) setSignupError("");
+                        }}
                         placeholder="Enter your full name"
                         className="w-full h-[42px] pl-10 pr-4 bg-[#F7F7F7] focus:bg-white border border-[#D8D8D8] focus:border-[#0B465F] rounded-[8px] text-[13px] text-[#111111] placeholder-[#8E8E8E] focus:outline-none transition-colors"
                       />
@@ -2406,7 +2558,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-[12px] font-medium text-[#222222] mb-1.5">
+                    <label htmlFor="signup-email" className="block text-[12px] font-medium text-[#222222] mb-1.5">
                       Email Address
                     </label>
                     <div className="relative">
@@ -2421,9 +2573,16 @@ export default function App() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3 7l9 6 9-6" />
                       </svg>
                       <input
+                        id="signup-email"
+                        name="email"
                         type="email"
+                        autoComplete="email"
+                        inputMode="email"
                         value={signupEmail}
-                        onChange={e => setSignupEmail(e.target.value)}
+                        onChange={e => {
+                          setSignupEmail(e.target.value);
+                          if (signupError) setSignupError("");
+                        }}
                         placeholder="Enter your email"
                         className="w-full h-[42px] pl-10 pr-4 bg-[#F7F7F7] focus:bg-white border border-[#D8D8D8] focus:border-[#0B465F] rounded-[8px] text-[13px] text-[#111111] placeholder-[#8E8E8E] focus:outline-none transition-colors"
                       />
@@ -2431,7 +2590,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-[12px] font-medium text-[#222222] mb-1.5">
+                    <label htmlFor="signup-password" className="block text-[12px] font-medium text-[#222222] mb-1.5">
                       Password
                     </label>
                     <div className="relative">
@@ -2446,28 +2605,36 @@ export default function App() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 018 0v4" />
                       </svg>
                       <input
+                        id="signup-password"
+                        name="new-password"
                         type={showSignupPw ? "text" : "password"}
+                        autoComplete="new-password"
+                        aria-describedby="signup-password-hint"
                         value={signupPassword}
-                        onChange={e => setSignupPassword(e.target.value)}
+                        onChange={e => {
+                          setSignupPassword(e.target.value);
+                          if (signupError) setSignupError("");
+                        }}
                         placeholder="Create a password"
                         className="w-full h-[42px] pl-10 pr-10 bg-[#F7F7F7] focus:bg-white border border-[#D8D8D8] focus:border-[#0B465F] rounded-[8px] text-[13px] text-[#111111] placeholder-[#8E8E8E] focus:outline-none transition-colors"
                       />
                       <button
                         type="button"
                         onClick={() => setShowSignupPw(!showSignupPw)}
-                        aria-label="Toggle password visibility"
+                        aria-label={showSignupPw ? "Hide passwords" : "Show passwords"}
+                        aria-pressed={showSignupPw}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-[#555555] hover:text-[#111111] p-1"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
-                          <circle cx="12" cy="12" r="2.8" />
-                        </svg>
+                        <EyeIcon open={showSignupPw} />
                       </button>
                     </div>
+                    <p id="signup-password-hint" className="text-[11px] text-[#777777] mt-1.5">
+                      At least 8 characters, with a letter and a number.
+                    </p>
                   </div>
 
                   <div>
-                    <label className="block text-[12px] font-medium text-[#222222] mb-1.5">
+                    <label htmlFor="signup-confirm" className="block text-[12px] font-medium text-[#222222] mb-1.5">
                       Confirm password
                     </label>
                     <div className="relative">
@@ -2482,9 +2649,15 @@ export default function App() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 018 0v4" />
                       </svg>
                       <input
+                        id="signup-confirm"
+                        name="confirm-password"
                         type={showSignupPw ? "text" : "password"}
+                        autoComplete="new-password"
                         value={signupConfirmPw}
-                        onChange={e => setSignupConfirmPw(e.target.value)}
+                        onChange={e => {
+                          setSignupConfirmPw(e.target.value);
+                          if (signupError) setSignupError("");
+                        }}
                         placeholder="Confirm your password"
                         className="w-full h-[42px] pl-10 pr-10 bg-[#F7F7F7] focus:bg-white border border-[#D8D8D8] focus:border-[#0B465F] rounded-[8px] text-[13px] text-[#111111] placeholder-[#8E8E8E] focus:outline-none transition-colors"
                       />
@@ -2493,9 +2666,10 @@ export default function App() {
 
                   <button
                     type="submit"
-                    className="w-full h-[44px] mt-2 rounded-[8px] bg-[#0B465F] hover:bg-[#083548] text-white text-[13.5px] font-medium transition-colors shadow-sm"
+                    disabled={authBusy}
+                    className="w-full h-[44px] mt-2 rounded-[8px] bg-[#0B465F] hover:bg-[#083548] disabled:opacity-60 text-white text-[13.5px] font-medium transition-colors shadow-sm"
                   >
-                    Sign Up
+                    {authBusy ? "Creating account..." : "Sign Up"}
                   </button>
                 </form>
 
@@ -2519,7 +2693,7 @@ export default function App() {
                       <path fill="#FBBC05" d="M6.4 13.9c-.2-.6-.3-1.2-.3-1.9s.1-1.3.3-1.9V7.5H3.1C2.4 8.9 2 10.4 2 12s.4 3.1 1.1 4.5l3.3-2.6z" />
                       <path fill="#4285F4" d="M12 5.9c1.5 0 2.8.5 3.8 1.5l2.9-2.9C17 2.9 14.7 2 12 2 8.1 2 4.8 4.2 3.1 7.5l3.3 2.6c.8-2.3 3-4.2 5.6-4.2z" />
                     </svg>
-                    <span>Continue</span>
+                    <span>Google</span>
                   </button>
 
                   <button
@@ -2530,7 +2704,7 @@ export default function App() {
                     <svg className="w-4 h-4 text-[#1877F2] shrink-0" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M13.5 21v-7.5h2.5l.4-3h-2.9V8.6c0-.9.3-1.5 1.5-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.8 1.4-3.8 3.9v2.3H8v3h2.5V21h3z" />
                     </svg>
-                    <span>Continue</span>
+                    <span>Facebook</span>
                   </button>
                 </div>
 
@@ -2772,6 +2946,7 @@ export default function App() {
         >
           <form
             onSubmit={saveProfileEdit}
+            noValidate
             onClick={e => e.stopPropagation()}
             className="bg-[#F8F8F8] border border-[#DCDCDC] rounded-2xl max-w-md w-full p-6 shadow-2xl"
           >
@@ -2812,13 +2987,25 @@ export default function App() {
               />
             ) : (
               <input
-                type="text"
+                type={
+                  editingProfileField.key === "email"
+                    ? "email"
+                    : editingProfileField.key === "phone"
+                    ? "tel"
+                    : "text"
+                }
                 autoFocus
                 value={editFieldValue}
-                onChange={e => setEditFieldValue(e.target.value)}
+                onChange={e => {
+                  setEditFieldValue(e.target.value);
+                  if (editFieldError) setEditFieldError("");
+                }}
                 placeholder={`Enter ${editingProfileField.label.toLowerCase()}`}
                 className="w-full h-[42px] bg-white border border-[#DCDCDC] rounded-[8px] px-3.5 text-[13.5px] text-[#111111] mb-5 focus:outline-none focus:border-[#0B465F]"
               />
+            )}
+            {editFieldError && (
+              <p className="-mt-3 mb-4 text-[12px] text-[#C93B3B]">{editFieldError}</p>
             )}
 
             <div className="flex items-center justify-end gap-2.5">
@@ -2999,11 +3186,14 @@ export default function App() {
           <form
             onSubmit={e => {
               e.preventDefault();
+              const email = forgotEmailInput.trim().toLowerCase();
+              if (!isValidEmail(email)) {
+                pushToast("Please enter a valid email address.");
+                return;
+              }
               setForgotPwModalOpen(false);
               pushToast(
-                `Password reset instructions sent to ${
-                  forgotEmailInput.trim() || "your email"
-                }`
+                "Password reset emails aren't available yet. Please contact support@hoodvault.ph."
               );
             }}
             onClick={e => e.stopPropagation()}
@@ -3013,7 +3203,7 @@ export default function App() {
               Reset Password
             </h3>
             <p className="text-[12.5px] text-[#666666] mb-4">
-              Enter your account email to receive a password reset link.
+              Enter the email you signed up with and we&apos;ll help you get back into your account.
             </p>
             <input
               type="email"
