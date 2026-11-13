@@ -730,7 +730,7 @@ export default function App() {
   // Left Showcase Panel for Login & Sign Up
   function AuthShowcaseCard() {
     return (
-      <div className="w-full lg:w-[445px] bg-[#E6E6E6] rounded-[14px] p-7 sm:p-9 flex flex-col justify-between shrink-0">
+      <div className="hidden lg:flex w-full lg:w-[445px] bg-[#E6E6E6] rounded-[14px] p-7 sm:p-9 flex-col justify-between shrink-0">
         <div>
           <h2 className="text-[26px] font-semibold text-[#111111] tracking-[-0.01em] leading-snug">
             Stay Cozy, Stay You.
@@ -771,7 +771,7 @@ export default function App() {
       <header className="w-full pt-6 pb-2 px-4 sm:px-8">
         <div className="max-w-[1060px] mx-auto">
           <div
-            className={`flex flex-wrap items-center justify-between gap-4 pb-5 ${
+            className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-4 pb-3 lg:pb-5 ${
               isAuthView ? "" : "border-b border-[#D5D5D5]"
             }`}
           >
@@ -779,7 +779,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => navigateTo("home")}
-              className="flex items-center gap-3 text-left group focus:outline-none"
+              className="order-1 flex items-center gap-2.5 sm:gap-3 text-left group focus:outline-none"
             >
               <svg
                 className="w-6 h-6 text-[#222222] transition-transform duration-200 group-hover:scale-105"
@@ -801,7 +801,7 @@ export default function App() {
 
             {/* Center Navigation Links (Underline matches exact width of each word) */}
             {!isAuthView && (
-              <nav className="flex items-center gap-8 sm:gap-11" aria-label="Main Navigation">
+              <nav className="order-3 w-full flex items-center justify-between sm:justify-start sm:gap-11 lg:order-2 lg:w-auto" aria-label="Main Navigation">
                 {[
                   { id: "home", label: "Home", match: ["home"] },
                   { id: "categories", label: "Categories", match: ["categories", "catalog"] },
@@ -832,8 +832,24 @@ export default function App() {
 
             {/* Right Search + Cart + Account */}
             {!isAuthView && (
-              <div className="flex items-center gap-5 sm:gap-7">
-                <div className="relative w-[210px] sm:w-[265px]">
+              <div className="order-2 lg:order-3 flex items-center gap-4 sm:gap-7">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentView("search");
+                    setTimeout(() => mainSearchInputRef.current?.focus(), 40);
+                  }}
+                  aria-label="Search hoodies"
+                  className={`md:hidden p-1 transition-colors ${
+                    currentView === "search" ? "text-[#0B465F]" : "text-[#111111]"
+                  }`}
+                >
+                  <svg className="w-[21px] h-[21px]" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="7" />
+                    <path strokeLinecap="round" d="M20 20l-3.8-3.8" />
+                  </svg>
+                </button>
+                <div className="relative hidden md:block w-[210px] lg:w-[265px]">
                   <svg
                     className="w-4 h-4 text-[#222222] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
                     fill="none"
@@ -878,7 +894,7 @@ export default function App() {
                     <circle cx="9.5" cy="19.5" r="1.4" fill="currentColor" />
                     <circle cx="17.5" cy="19.5" r="1.4" fill="currentColor" />
                   </svg>
-                  <span>Cart</span>
+                  <span className="hidden sm:inline">Cart</span>
                   {cartItemCount > 0 && (
                     <span className="-ml-0.5 px-1.5 py-0.2 text-[10px] font-semibold bg-[#0B465F] text-white rounded-full leading-tight">
                       {cartItemCount}
@@ -896,7 +912,7 @@ export default function App() {
                     <circle cx="12" cy="8" r="4" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 20c1.6-3.6 4.3-5.5 7.5-5.5s5.9 1.9 7.5 5.5" />
                   </svg>
-                  <span>Account</span>
+                  <span className="hidden sm:inline">Account</span>
                 </button>
               </div>
             )}
@@ -920,13 +936,13 @@ export default function App() {
                 return (
                   <div
                     style={{ background: slide.gradient }}
-                    className="relative rounded-[14px] min-h-[248px] px-7 sm:px-11 py-8 flex flex-col md:flex-row items-center justify-between overflow-hidden shadow-sm transition-all duration-300"
+                    className="relative rounded-[14px] min-h-[248px] px-6 sm:px-11 pt-7 pb-10 sm:py-8 flex flex-col md:flex-row items-center justify-between overflow-hidden shadow-sm transition-all duration-300"
                   >
-                    <div className="z-10 max-w-[410px] text-left">
+                    <div className="z-10 w-full md:w-auto max-w-[410px] text-left">
                       <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-[#1E1E1E]">
                         {slide.tag}
                       </p>
-                      <h2 className="text-[34px] sm:text-[38px] font-semibold text-[#0F0F0F] leading-[1.12] mt-3.5">
+                      <h2 className="text-[30px] sm:text-[38px] font-semibold text-[#0F0F0F] leading-[1.12] mt-3.5">
                         {slide.title}
                       </h2>
                       <p className="text-[15px] text-[#222222] mt-2.5">
@@ -945,7 +961,7 @@ export default function App() {
                       </button>
                     </div>
 
-                    <div className="mt-6 md:mt-0 md:mr-2 flex items-center justify-center z-10">
+                    <div className="mt-6 md:mt-0 md:mr-2 w-full md:w-auto flex items-center justify-center z-10">
                       <img
                         src={slide.image}
                         alt={slide.title}
@@ -958,7 +974,7 @@ export default function App() {
                           slide.isTwin
                             ? "h-[205px] sm:h-[222px]"
                             : "h-[200px] sm:h-[214px]"
-                        } w-auto object-contain select-none cursor-pointer transition-transform duration-300 hover:scale-[1.02]`}
+                        } w-auto max-w-full object-contain select-none cursor-pointer transition-transform duration-300 hover:scale-[1.02]`}
                       />
                     </div>
 
@@ -983,7 +999,7 @@ export default function App() {
               })()}
 
               {/* Build Your Collection Banner */}
-              <div className="mt-6 rounded-[14px] bg-[#07435C] text-white px-7 sm:px-9 py-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+              <div className="mt-6 rounded-[14px] bg-[#07435C] text-white px-6 sm:px-9 py-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
                 <div className="max-w-[360px]">
                   <p className="text-[10px] uppercase tracking-[0.06em] text-white/80 font-medium">
                     YOUR STYLE YOUR JOURNEY
@@ -998,23 +1014,23 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="flex flex-wrap sm:flex-nowrap items-end sm:items-center gap-6 sm:gap-9 w-full md:w-auto justify-between md:justify-end self-end md:self-center">
+                <div className="flex flex-col-reverse sm:flex-row sm:flex-nowrap items-stretch sm:items-center gap-5 sm:gap-9 w-full md:w-auto justify-between md:justify-end self-end md:self-center">
                   <button
                     type="button"
                     onClick={() => setCollectionModalOpen(true)}
-                    className="px-7 py-2.5 rounded-[8px] bg-white hover:bg-[#F0F4F6] text-[#0B465F] text-[12.5px] font-medium transition-colors shadow-sm sm:mt-6"
+                    className="w-full sm:w-auto px-7 py-2.5 rounded-[8px] bg-white hover:bg-[#F0F4F6] text-[#0B465F] text-[12.5px] font-medium transition-colors shadow-sm sm:mt-6"
                   >
                     View Collection
                   </button>
 
-                  <div className="min-w-[175px]">
+                  <div className="w-full sm:w-auto sm:min-w-[175px]">
                     <div className="text-[18px] font-semibold leading-tight">
                       {collectedCount} / 10
                     </div>
                     <div className="text-[11.5px] text-white/85 mt-1">
                       Hoodies Collected
                     </div>
-                    <div className="w-[175px] h-[5px] bg-white/65 rounded-full overflow-hidden mt-3">
+                    <div className="w-full sm:w-[175px] h-[5px] bg-white/65 rounded-full overflow-hidden mt-3">
                       <div
                         className="h-full bg-white rounded-full transition-all duration-300"
                         style={{ width: `${Math.min(100, collectedCount * 10)}%` }}
@@ -1281,7 +1297,7 @@ export default function App() {
               </div>
 
               {/* Search Filter Tabs (Exact underline width per word) */}
-              <div className="flex items-center gap-10 sm:gap-14 mt-5 mb-6 pl-1">
+              <div className="flex items-center gap-7 sm:gap-14 mt-5 mb-6 pl-1 overflow-x-auto whitespace-nowrap [scrollbar-width:none]">
                 {["All", "Hoodies", "Graphic", "Oversize", "Zip-Up"].map(tab => {
                   const isActive = tab === searchCategory;
                   return (
@@ -1465,7 +1481,7 @@ export default function App() {
 
               <div className="flex flex-col lg:flex-row items-start gap-11">
                 <div className="w-full lg:flex-1">
-                  <div className="grid grid-cols-12 text-[12px] text-[#555555] pb-3 border-b border-[#D5D5D5]">
+                  <div className="hidden sm:grid grid-cols-12 text-[12px] text-[#555555] pb-3 border-b border-[#D5D5D5]">
                     <div className="col-span-6 sm:col-span-5">Product</div>
                     <div className="col-span-2">Price</div>
                     <div className="col-span-2">Quantity</div>
@@ -1479,9 +1495,9 @@ export default function App() {
                       return (
                         <div
                           key={`${item.id}-${item.size}`}
-                          className="grid grid-cols-12 items-center py-4 border-b border-[#D5D5D5] gap-2"
+                          className="relative grid grid-cols-12 items-center py-4 border-b border-[#D5D5D5] gap-x-2 gap-y-3 sm:border-t-0 first:border-t sm:first:border-t-0"
                         >
-                          <div className="col-span-6 sm:col-span-5 flex items-center gap-4">
+                          <div className="col-span-12 sm:col-span-5 flex items-center gap-4 pr-8 sm:pr-0">
                             <div
                               onClick={() => openProductDetail(p)}
                               className="w-[82px] h-[82px] rounded-[10px] bg-[#F8F8F8] flex items-center justify-center p-1.5 shrink-0 cursor-pointer"
@@ -1517,14 +1533,17 @@ export default function App() {
                                   ))}
                                 </select>
                               </div>
+                              <div className="sm:hidden text-[12px] text-[#666666] mt-1.5">
+                                {formatPeso(p.price)} each
+                              </div>
                             </div>
                           </div>
 
-                          <div className="col-span-2 text-[13.5px] font-medium text-[#111111]">
+                          <div className="hidden sm:block col-span-2 text-[13.5px] font-medium text-[#111111]">
                             {formatPeso(p.price)}
                           </div>
 
-                          <div className="col-span-2 flex items-center">
+                          <div className="col-span-6 sm:col-span-2 flex items-center">
                             <div className="border border-[#F3B9B6] bg-[#F6F1F1] rounded-[8px] h-[36px] w-[98px] inline-flex items-center justify-between px-2.5 select-none">
                               <button
                                 type="button"
@@ -1550,15 +1569,15 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div className="col-span-2 sm:col-span-3 flex items-center justify-between pl-2 pr-1">
-                            <span className="text-[13.5px] font-medium text-[#111111]">
+                          <div className="col-span-6 sm:col-span-3 flex items-center justify-end sm:justify-between pl-2 pr-1">
+                            <span className="text-[14px] sm:text-[13.5px] font-semibold sm:font-medium text-[#111111]">
                               {formatPeso(rowTotal)}
                             </span>
                             <button
                               type="button"
                               onClick={() => removeCartItem(item.id, item.size)}
                               aria-label={`Remove ${p.name}`}
-                              className="text-[#222222] hover:text-[#EB5757] p-1 transition-colors"
+                              className="absolute top-3 right-0 sm:static text-[#222222] hover:text-[#EB5757] p-1 transition-colors"
                             >
                               <svg
                                 className="w-4 h-4"
@@ -1649,7 +1668,7 @@ export default function App() {
                 Checkout
               </h1>
 
-              <div className="flex items-center gap-20 sm:gap-36 text-[13px] mt-3 mb-6">
+              <div className="flex items-center gap-8 sm:gap-36 text-[13px] mt-3 mb-6">
                 <span className="font-medium text-[#0B465F]">
                   1 &nbsp;Shipping &amp; payment
                 </span>
@@ -2013,18 +2032,18 @@ export default function App() {
                   You can check delivery updates in My Orders.
                 </p>
 
-                <div className="flex flex-wrap items-center justify-center gap-5 mt-6">
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-5 mt-6">
                   <button
                     type="button"
                     onClick={() => setOrdersModalOpen(true)}
-                    className="w-[215px] h-[44px] rounded-[8px] bg-[#0B465F] hover:bg-[#083548] text-white text-[13.5px] font-medium transition-colors"
+                    className="w-full sm:w-[215px] h-[44px] rounded-[8px] bg-[#0B465F] hover:bg-[#083548] text-white text-[13.5px] font-medium transition-colors"
                   >
                     View My Orders
                   </button>
                   <button
                     type="button"
                     onClick={() => navigateTo("home")}
-                    className="w-[215px] h-[44px] rounded-[8px] border border-[#3A6B80] text-[#0B465F] hover:bg-[#DCE7EC]/50 text-[13.5px] font-medium transition-colors"
+                    className="w-full sm:w-[215px] h-[44px] rounded-[8px] border border-[#3A6B80] text-[#0B465F] hover:bg-[#DCE7EC]/50 text-[13.5px] font-medium transition-colors"
                   >
                     Continue Shopping
                   </button>
@@ -2536,8 +2555,8 @@ export default function App() {
 
       {/* Footer */}
       <footer className="w-full px-4 sm:px-8 pb-8 mt-auto">
-        <div className="max-w-[1060px] mx-auto pt-5 border-t border-[#D5D5D5] flex flex-wrap items-center justify-between gap-4 text-[12.5px]">
-          <div className="flex items-center gap-12 sm:gap-20">
+        <div className="max-w-[1060px] mx-auto pt-5 border-t border-[#D5D5D5] flex flex-col sm:flex-row sm:flex-wrap items-center justify-between gap-3 sm:gap-4 text-[12.5px]">
+          <div className="flex items-center gap-6 sm:gap-20">
             <button
               type="button"
               onClick={() => navigateTo("home")}
@@ -2591,7 +2610,7 @@ export default function App() {
         >
           <div
             onClick={e => e.stopPropagation()}
-            className="bg-[#F8F8F8] border border-[#DCDCDC] rounded-2xl max-w-[680px] w-full p-6 sm:p-8 shadow-2xl grid grid-cols-1 sm:grid-cols-2 gap-6 items-center"
+            className="bg-[#F8F8F8] border border-[#DCDCDC] rounded-2xl max-w-[680px] w-full max-h-[90vh] overflow-y-auto p-5 sm:p-8 shadow-2xl grid grid-cols-1 sm:grid-cols-2 gap-6 items-center"
           >
             <div className="bg-white rounded-xl p-6 flex items-center justify-center h-[260px] relative">
               <HeartButton
@@ -2694,7 +2713,7 @@ export default function App() {
         >
           <div
             onClick={e => e.stopPropagation()}
-            className="bg-white rounded-2xl max-w-[390px] w-full overflow-hidden shadow-2xl border border-[#E0E0E0]"
+            className="bg-white rounded-2xl max-w-[390px] w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-[#E0E0E0]"
           >
             <div className="bg-[#0B465F] text-white px-6 py-4 flex items-center justify-between">
               <div>
@@ -2891,7 +2910,7 @@ export default function App() {
         >
           <div
             onClick={e => e.stopPropagation()}
-            className="bg-[#F8F8F8] border border-[#DCDCDC] rounded-2xl max-w-lg w-full p-6 shadow-2xl"
+            className="bg-[#F8F8F8] border border-[#DCDCDC] rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl"
           >
             <div className="flex items-center justify-between mb-3">
               <div>
